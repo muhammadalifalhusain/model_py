@@ -1,3 +1,4 @@
+# pso/utils.py
 import mysql.connector
 from config import DB_CONFIG
 from pso.model import Item, Knapsack
@@ -9,14 +10,21 @@ def fetch_items_and_knapsacks():
     # Ambil data produk
     cursor.execute("SELECT * FROM barang")
     items = [
-        Item(row['kategori_nama'], row['nama_barang'], row['harga_umum'], row['berat'])
+        Item(
+            category=row['kategori_nama'],
+            name=row['nama_barang'],
+            price=float(row['harga_umum']),
+            weight=float(row['berat'])
+        )
         for row in cursor.fetchall()
     ]
 
-    # Ambil data knapsack (misal tabel bernama bin)
+    # Ambil data knapsack
     cursor.execute("SELECT * FROM knapsack")
     knapsacks = [
-        Knapsack(row['capacity'], row['budget'])
+        Knapsack(
+            capacity=float(row['capacity']),
+            budget=float(row['budget']))
         for row in cursor.fetchall()
     ]
 

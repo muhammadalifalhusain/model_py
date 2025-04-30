@@ -3,12 +3,12 @@
 import random
 
 class Item:
-    def __init__(self, category, name, price, weight, value):
+    def __init__(self, category, name, price, weight):
         self.category = category
         self.name = name
         self.price = price
         self.weight = weight
-        self.value = value
+        self.value = price
 
 class Knapsack:
     def __init__(self, capacity, budget):
@@ -61,11 +61,9 @@ class Particle:
         for i in range(len(self.position)):
             self.position[i] = max(0, min(num_knapsacks, round(self.position[i] + self.velocity[i])))
 
-
-def particle_swarm_optimization(items, knapsacks, num_particles=50, num_iterations=500):
+def particle_swarm_optimization(items, knapsacks, num_particles=50, num_iterations=500, top_n=3):
     particles = [Particle(items, knapsacks) for _ in range(num_particles)]
-    global_best_position = particles[0].position[:]
-    global_best_value = particles[0].best_value
+    top_solutions = []
 
     for _ in range(num_iterations):
         for particle in particles:
@@ -73,17 +71,21 @@ def particle_swarm_optimization(items, knapsacks, num_particles=50, num_iteratio
             if value > particle.best_value:
                 particle.best_value = value
                 particle.best_position = particle.position[:]
-            if value > global_best_value:
-                global_best_value = value
-                global_best_position = particle.position[:]
+
+            # Simpan solusi jika termasuk top_n terbaik
+            top_solutions.append((particle.best_value, particle.best_position[:]))
+            top_solutions = sorted(top_solutions, key=lambda x: x[0], reverse=True)[:top_n]
 
         for particle in particles:
-            particle.update_velocity(global_best_position, 0.7, 1.4, 1.4)
+            particle.update_velocity(top_solutions[0][1], 0.7, 1.4, 1.4)
             particle.update_position(len(knapsacks))
 
-    best_solution = [Knapsack(k.capacity, k.budget) for k in knapsacks]
-    for i, knapsack_index in enumerate(global_best_position):
-        if knapsack_index < len(knapsacks):
-            best_solution[knapsack_index].add_item(items[i])
+    result_solutions = []
+    for _, position in top_solutions:
+        solution = [Knapsack(k.capacity, k.budget) for k in knapsacks]
+        for i, knapsack_index in enumerate(position):
+            if knapsack_index < len(knapsacks):
+                solution[knapsack_index].add_item(items[i])
+        result_solutions.append(solution)
 
-    return best_solution, global_best_value
+    return result_solutions  

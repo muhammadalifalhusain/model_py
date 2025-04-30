@@ -1,11 +1,9 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from pso.utils import fetch_items_and_knapsacks  # Pastikan fetch_items_and_knapsacks menyesuaikan inputan
-from pso.model import particle_swarm_optimization  # Sesuaikan dengan fungsi optimasi Anda
+from pso.utils import fetch_items_and_knapsacks  # Pastikan fungsi ini ada
+from pso.model import particle_swarm_optimization  # Fungsi optimasi
 from config import DB_CONFIG
-import mysql.connector  # Pastikan ini ada
-
-
+import mysql.connector  # Pastikan sudah terinstall
 
 app = Flask(__name__)
 CORS(app)
@@ -19,65 +17,69 @@ def get_db_connection():
     )
     return connection
 
-@app.route("/optimize", methods=["POST"])
+# Route utama
+@app.route("/output", methods=["POST"])
 def optimize_products():
     data = request.get_json()
+    max_total_price = float(data.get("max_total_price", 0))
+    max_total_weight = float(data.get("max_total_weight", 0))
 
-    max_total_price = data.get("max_total_price", None)
-    max_total_weight = data.get("max_total_weight", None)
-
-    if max_total_price is None or max_total_weight is None:
-        return jsonify({"error": "Missing required parameters: max_total_price or max_total_weight"}), 400
-
-    # Ambil data produk dan knapsack dari database
+    # Ambil data item dan knapsacks dari database
     items, knapsacks = fetch_items_and_knapsacks()
 
-    # Set filter berdasarkan input dari user
-    for item in items:
-        if item.price > max_total_price or item.weight > max_total_weight:
-            items.remove(item)
+    # Filter item yang memenuhi batas harga dan berat
+    filtered_items = [
+        item for item in items
+        if item.price <= max_total_price and item.weight <= max_total_weight
+    ]
 
-    # Proses optimasi dengan PSO
-    solution, total_value = particle_swarm_optimization(items, knapsacks)
+    if not filtered_items:
+        return jsonify({
+            "error": "Tidak ada item yang memenuhi batas harga/berat",
+            "max_price": max_total_price,
+            "max_weight": max_total_weight
+        }), 400
 
-    # Menyiapkan hasil untuk dikirimkan ke frontend
+    # Jalankan algoritma PSO
+    solution_sets = particle_swarm_optimization(
+        filtered_items,
+        knapsacks,
+        num_particles=100,
+        num_iterations=1000,
+        top_n=3  
+    )
+
+    # Susun hasil untuk dikembalikan ke frontend
     result = {
-        "total_value": total_value,
-        "knapsacks": []
+        "parcels": []
     }
 
-    for i, k in enumerate(solution):
-        knapsack_data = {
-            "index": i + 1,
-            "total_weight": k.total_weight(),
-            "total_price": k.total_price(),
-            "items": [
+    for idx, solution in enumerate(solution_sets, 1):
+        parcel_data = {
+            "parcel_number": idx,
+            "knapsacks": [
                 {
-                    "category": item.category,
-                    "name": item.name,
-                    "price": item.price,
-                    "weight": item.weight,
-                    "value": item.value
+                    "index": i + 1,
+                    "total_weight": k.total_weight(),
+                    "total_price": k.total_price(),
+                    "items": [
+                        {
+                            "category": item.category,
+                            "name": item.name,
+                            "price": item.price,
+                            "weight": item.weight,
+                            "value": item.value
+                        }
+                        for item in k.items
+                    ]
                 }
-                for item in k.items
-            ]
+                for i, k in enumerate(solution)
+            ],
+            "total_value": sum(k.total_value() for k in solution)
         }
-        result["knapsacks"].append(knapsack_data)
+        result["parcels"].append(parcel_data)
 
     return jsonify(result)
-
-@app.route("/products", methods=["GET"])
-def get_products():
-    connection = get_db_connection()
-    cursor = connection.cursor(dictionary=True)
-    
-    cursor.execute("SELECT * FROM barang LIMIT 10")  
-    products = cursor.fetchall()
-    
-    cursor.close()
-    connection.close()
-
-    return jsonify(products)
 
 if __name__ == "__main__":
     app.run(debug=True)
