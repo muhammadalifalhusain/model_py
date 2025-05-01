@@ -6,8 +6,7 @@ from pso.model import Item, Knapsack
 def fetch_items_and_knapsacks():
     conn = mysql.connector.connect(**DB_CONFIG)
     cursor = conn.cursor(dictionary=True)
-
-    # Ambil data produk
+    
     cursor.execute("SELECT * FROM barang")
     items = [
         Item(

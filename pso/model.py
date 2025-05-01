@@ -1,6 +1,5 @@
-# Tambahkan ini dalam file baru `pso/model.py`
-
 import random
+import math
 
 class Item:
     def __init__(self, category, name, price, weight, value):
@@ -35,57 +34,134 @@ class Knapsack:
     def is_valid(self):
         return self.total_weight() <= self.capacity and self.total_price() <= self.budget
 
-
 class Particle:
-    def __init__(self, items, knapsacks):
-        self.position = [random.choice(range(len(knapsacks) + 1)) for _ in items]
+    def __init__(self, items, knapsack):
+        self.items = items
+        self.knapsack = knapsack
+        self.position = [random.randint(0, 1) for _ in items]
         self.velocity = [random.uniform(-1, 1) for _ in items]
         self.best_position = self.position[:]
-        self.best_value = self.evaluate(items, knapsacks)
+        self.best_score = self.evaluate()
+    def evaluate(self):
+        total_weight = 0
+        total_price = 0
+        total_value = 0
 
-    def evaluate(self, items, knapsacks):
-        solution = [Knapsack(k.capacity, k.budget) for k in knapsacks]
-        for i, knapsack_index in enumerate(self.position):
-            if knapsack_index < len(knapsacks):
-                solution[knapsack_index].add_item(items[i])
-        return sum(k.total_value() for k in solution) if all(k.is_valid() for k in solution) else 0
+        for i, include in enumerate(self.position):
+            if include:
+                item = self.items[i]
+                total_weight += item.weight
+                total_price += item.price
+                total_value += item.value
+
+        weight_excess = max(0, total_weight - self.knapsack.capacity)
+        price_excess = max(0, total_price - self.knapsack.budget)
+
+        normalized_weight = total_weight / (self.knapsack.capacity or 1)
+        normalized_price = total_price / (self.knapsack.budget or 1)
+        normalized_value = total_value / (sum(item.value for item in self.items) or 1)
+
+        weight_penalty = math.exp(2 * weight_excess / (self.knapsack.capacity + 1e-6)) 
+        price_penalty = math.exp(2 * price_excess / (self.knapsack.budget + 1e-6))   
+
+        if weight_excess > 0 or price_excess > 0:
+            return normalized_value / (weight_penalty * price_penalty) 
+
+
+        weight_utilization = 1 - abs(1 - normalized_weight)
+        price_utilization = 1 - abs(1 - normalized_price)
+
+        return normalized_value * (0.5 + 0.5 * weight_utilization * price_utilization)
 
     def update_velocity(self, global_best_position, w, c1, c2):
         for i in range(len(self.velocity)):
             r1, r2 = random.random(), random.random()
             cognitive = c1 * r1 * (self.best_position[i] - self.position[i])
             social = c2 * r2 * (global_best_position[i] - self.position[i])
-            self.velocity[i] = 0.7 * self.velocity[i] + cognitive + social
+            self.velocity[i] = w * self.velocity[i] + cognitive + social
+            # Limit velocity to prevent extreme changes
+            self.velocity[i] = max(-4, min(4, self.velocity[i]))
 
-    def update_position(self, num_knapsacks):
+    def update_position(self):
         for i in range(len(self.position)):
-            self.position[i] = max(0, min(num_knapsacks, round(self.position[i] + self.velocity[i])))
+            sigmoid = 1 / (1 + math.exp(-self.velocity[i]))
+            threshold = 0.5 + (random.random() - 0.5) * 0.1  
+            self.position[i] = 1 if sigmoid > threshold else 0
 
-def particle_swarm_optimization(items, knapsacks, num_particles=50, num_iterations=500, top_n=3):
-    particles = [Particle(items, knapsacks) for _ in range(num_particles)]
-    top_solutions = []
-
-    for _ in range(num_iterations):
+def particle_swarm_optimization(items, knapsack, num_particles=50, num_iterations=200, top_n=3):
+    feasible_items = [item for item in items 
+                     if item.price <= knapsack.budget and item.weight <= knapsack.capacity]
+    
+    if not feasible_items:
+        return []  
+    # Inisialisasi partikel
+    particles = [Particle(feasible_items, knapsack) for _ in range(num_particles)]
+    
+    global_best_score = -float('inf')
+    global_best_position = None
+    
+    for particle in particles:
+        if particle.best_score > global_best_score:
+            global_best_score = particle.best_score
+            global_best_position = particle.best_position
+    
+    # Jika semua partikel invalid, berikan solusi kosong
+    if global_best_position is None:
+        return []
+    
+    top_solutions = [(global_best_score, global_best_position[:])]
+    
+    #  iterasi PSO
+    for iteration in range(num_iterations):
+        # Adaptive parameters
+        w = 0.9 - (0.9 - 0.4) * (iteration / num_iterations)
+        c1 = 2.5 - (2.5 - 1.5) * (iteration / num_iterations)
+        c2 = 1.5 + (2.5 - 1.5) * (iteration / num_iterations)
+        
         for particle in particles:
-            value = particle.evaluate(items, knapsacks)
-            if value > particle.best_value:
-                particle.best_value = value
-                particle.best_position = particle.position[:]
-
-            # Simpan solusi jika termasuk top_n terbaik
-            top_solutions.append((particle.best_value, particle.best_position[:]))
-            top_solutions = sorted(top_solutions, key=lambda x: x[0], reverse=True)[:top_n]
-
-        for particle in particles:
-            particle.update_velocity(top_solutions[0][1], 0.7, 1.4, 1.4)
-            particle.update_position(len(knapsacks))
-
-    result_solutions = []
-    for _, position in top_solutions:
-        solution = [Knapsack(k.capacity, k.budget) for k in knapsacks]
-        for i, knapsack_index in enumerate(position):
-            if knapsack_index < len(knapsacks):
-                solution[knapsack_index].add_item(items[i])
-        result_solutions.append(solution)
-
-    return result_solutions  
+            if global_best_position is not None:
+                particle.update_velocity(global_best_position, w, c1, c2)
+                particle.update_position()
+                
+                score = particle.evaluate()
+                if score > particle.best_score:
+                    particle.best_score = score
+                    particle.best_position = particle.position[:]
+                    
+                    if score > global_best_score:
+                        global_best_score = score
+                        global_best_position = particle.best_position[:]
+        
+        # Update top solutions
+        if global_best_position is not None:
+            existing = any(all(x == y for x, y in zip(global_best_position, pos)) 
+                         for _, pos in top_solutions)
+            if not existing:
+                top_solutions.append((global_best_score, global_best_position[:]))
+                top_solutions.sort(key=lambda x: x[0], reverse=True)
+                top_solutions = top_solutions[:top_n]
+    
+    final_results = []
+    for score, position in top_solutions:
+        selected_items = [feasible_items[i] for i, bit in enumerate(position) if bit]
+        if not selected_items:
+            continue
+            
+        total_price = sum(item.price for item in selected_items)
+        total_weight = sum(item.weight for item in selected_items)
+        total_value = sum(item.value for item in selected_items)
+        
+        distance = (abs(total_price - knapsack.budget)/knapsack.budget + 
+                   abs(total_weight - knapsack.capacity)/knapsack.capacity)
+        
+        final_results.append({
+            "items": selected_items,
+            "total_price": total_price,
+            "total_weight": total_weight,
+            "total_value": total_value,
+            "score": score,
+            "distance": distance
+        })
+    
+    final_results.sort(key=lambda x: (x["distance"], -x["total_value"]))
+    return [res["items"] for res in final_results[:top_n]]
