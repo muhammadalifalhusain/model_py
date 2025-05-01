@@ -3,12 +3,12 @@
 import random
 
 class Item:
-    def __init__(self, category, name, price, weight):
+    def __init__(self, category, name, price, weight, value):
         self.category = category
         self.name = name
         self.price = price
         self.weight = weight
-        self.value = price
+        self.value = value
 
 class Knapsack:
     def __init__(self, capacity, budget):

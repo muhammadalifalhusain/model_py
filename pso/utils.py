@@ -14,7 +14,8 @@ def fetch_items_and_knapsacks():
             category=row['kategori_nama'],
             name=row['nama_barang'],
             price=float(row['harga_umum']),
-            weight=float(row['berat'])
+            weight=float(row['berat']),
+            value=float(row['value'])
         )
         for row in cursor.fetchall()
     ]
